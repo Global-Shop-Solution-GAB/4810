@@ -1,0 +1,423 @@
+Program.Sub.ScreenSU.Start
+Gui.Form_Open_Order..Create
+Gui.Form_Open_Order..Caption("Open Order all Inclusive")
+Gui.Form_Open_Order..Size(5580,8865)
+Gui.Form_Open_Order..MinX(0)
+Gui.Form_Open_Order..MinY(0)
+Gui.Form_Open_Order..Position(0,0)
+Gui.Form_Open_Order..BackColor(-2147483633)
+Gui.Form_Open_Order..MousePointer(0)
+Gui.Form_Open_Order..Event(UnLoad,Form_Open_Order_UnLoad)
+Gui.Form_Open_Order..MaxButton(False)
+Gui.Form_Open_Order..MinButton(False)
+Gui.Form_Open_Order..Sizeable(False)
+Gui.Form_Open_Order.cmdPrint.Create(Button)
+Gui.Form_Open_Order.cmdPrint.Size(855,375)
+Gui.Form_Open_Order.cmdPrint.Position(60,7710)
+Gui.Form_Open_Order.cmdPrint.Caption("Print")
+Gui.Form_Open_Order.cmdPrint.Event(Click,cmdPrint_Click)
+Gui.Form_Open_Order.optCrystal.Create(Option)
+Gui.Form_Open_Order.optCrystal.Size(5130,255)
+Gui.Form_Open_Order.optCrystal.Position(105,105)
+Gui.Form_Open_Order.optCrystal.Caption("Print to Crystal")
+Gui.Form_Open_Order.optCrystal.Event(Click,Print_Selection)
+Gui.Form_Open_Order.optExcel.Create(Option)
+Gui.Form_Open_Order.optExcel.Size(5130,255)
+Gui.Form_Open_Order.optExcel.Position(105,435)
+Gui.Form_Open_Order.optExcel.Caption("Print to Excel")
+Gui.Form_Open_Order.optExcel.Event(Click,Print_Selection)
+Gui.Form_Open_Order.GsGC_PLines.Create(GsGridControl)
+Gui.Form_Open_Order.GsGC_PLines.Size(5055,6240)
+Gui.Form_Open_Order.GsGC_PLines.Position(105,1245)
+Gui.Form_Open_Order.GsGC_PLines.Event(RowCellClick,GsGC_PLines_RowCellClick)
+Gui.Form_Open_Order.chkPL.Create(CheckBox)
+Gui.Form_Open_Order.chkPL.Size(2955,360)
+Gui.Form_Open_Order.chkPL.Position(105,885)
+Gui.Form_Open_Order.chkPL.Caption("All Product Lines")
+Gui.Form_Open_Order.chkPL.Event(Click,chkPL_Click)
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+V.Local.bRet.Declare(Boolean)
+
+F.ODBC.Connection!Con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+
+Gui.Form_Open_Order.optCrystal.Value(1)
+Gui.Form_Open_Order.optExcel.Value(0)
+
+f.Intrinsic.Control.CallSub(format_grid)
+
+'checking if user as excel if not disable the print to excel radio button
+F.Automation.MSExcel.CheckPresence(V.Local.bRet)
+F.Intrinsic.Control.If(V.Local.bRet,=,False)
+	Gui.Form_Open_Order.optExcel.Visible(False)
+F.Intrinsic.Control.Else
+	Gui.Form_Open_Order.optExcel.Visible(True)
+F.Intrinsic.Control.EndIf
+
+Gui.Form_Open_Order..Show
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Catch
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}","GCG_4810_Open_Order.g2u",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Form_Open_Order_UnLoad)
+F.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.Get_Data.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+V.Local.sSql.Declare(String)
+
+'create a dictionary from the product lines to use as a filter later on
+F.Data.DataTable.AddColumn("PLINES","TERMINAL","String",V.Caller.Terminal)
+f.Data.DataView.Create("PLINES","PR_PLINES",22,"SELECTED = 'True'","PRODUCT_LINE")
+F.Data.Dictionary.CreateFromDataView("DNY_PRINT","PLINES","PR_PLINES","PRODUCT_LINE","TERMINAL")
+F.Data.Dictionary.SetDefaultReturn("DNY_PRINT","")
+'getting a list of distinct parts from order lines and po_lines
+
+V.Local.sSql.Set("Select Distinct Part From V_Order_Lines Where QTY_BO > 0 Order by Part")
+F.Data.DataTable.CreateFromSQL("OrdersPart","con",V.Local.sSql,True)
+
+V.Local.sSql.Set("Select Distinct b.Part From V_PO_Lines b left join v_po_header a on a.purchase_order = b.purchase_order Where a.Flag_Recv_Closed <> 'Y' Order By Part")
+F.Data.DataTable.CreateFromSQL("POPart","con",V.Local.sSql,True)
+
+'merging the two to have a list of all parts
+F.Data.DataTable.Merge("POPart","OrdersPart",False,4)
+
+V.Local.sSql.Set("Select b.Part, d.product_line, a.Order_No, Name_Customer, a.Customer_Po, Qty_Ordered, Qty_OnHand, Date_Due, (Extension_order/Qty_BO) as Price From V_Order_Header a Left Join V_Order_Lines b On a.Order_No = b.Order_No Left Join V_Customer_Master c On a.Customer = c.Customer Join V_Inventory_Mstr d On b.Part = d.Part Where b.qty_bo > 0 Order By a.Order_No")
+F.Data.DataTable.CreateFromSQL("Demand","con",V.Local.sSql,True)
+
+V.Local.sSql.Set("Select b.Part, Cost, '' as product_line, a.Purchase_Order, Date_Order, Name_Vendor, sum(b.Qty_Order) as Qty_Order, sum(b.Qty_Order - b.Qty_Received) as Qty_Open from V_PO_Header a Left Join V_PO_Lines b On a.Purchase_Order = b.Purchase_Order Left Join V_Vendor_Master c On b.Vendor = c.Vendor Where (b.qty_order - b.qty_received) > 1 and a.Flag_Recv_Closed <> 'Y' group by part, cost, a.purchase_order, date_order, name_vendor Order By a.Purchase_Order")
+F.Data.DataTable.CreateFromSQL("Supply","con",V.Local.sSql,True)
+
+
+f.Data.Dictionary.CreateFromSQL("productline","con","select part,rtrim(product_line) as product_line from v_inventory_mstr")
+f.Data.Dictionary.SetDefaultReturn("productline","")
+f.Data.DataTable.FillFromDictionary("Supply","productline","part","Product_Line")
+
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Catch
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}","GCG_4810_Open_Order.g2u",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Form_Open_Order_UnLoad)
+F.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndTry
+Program.Sub.Get_Data.End
+
+Program.Sub.Form_Open_Order_UnLoad.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+
+F.ODBC.Connection!Con.Close
+F.Intrinsic.Control.End
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Catch
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}","GCG_4810_Open_Order.g2u",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End
+
+F.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndTry
+Program.Sub.Form_Open_Order_UnLoad.End
+
+Program.Sub.Print_Selection.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+
+F.Intrinsic.Control.SelectCase(V.Args.ControlName.UCase)
+	F.Intrinsic.Control.Case("OPTCRYSTAL")
+		F.Intrinsic.Control.If(V.Screen.Form_Open_Order!optCrystal.Value,=,0)
+			Gui.Form_Open_Order.optCrystal.Value(1)
+			Gui.Form_Open_Order.optExcel.Value(0)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Case("OPTEXCEL")
+		F.Intrinsic.Control.If(V.Screen.Form_Open_Order!optExcel.Value,=,0)
+			Gui.Form_Open_Order.optCrystal.Value(0)
+			Gui.Form_Open_Order.optExcel.Value(1)
+		F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.EndSelect
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Catch
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}","GCG_4810_Open_Order.g2u",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Form_Open_Order_UnLoad)
+F.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndTry
+Program.Sub.Print_Selection.End
+
+Program.Sub.cmdPrint_Click.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+V.Local.sSql.Declare(String)
+V.Local.iRpt.Declare(Long)
+V.Local.iBIRunID.Declare(Long)
+V.Local.iLogID.Declare(Long)
+V.Local.iRet.Declare(Long)
+V.Local.sParams.Declare(String)
+V.Local.sValues.Declare(String)
+V.Local.i.Declare(Long)
+V.Local.sDate.Declare(String)
+V.Local.sFile.Declare(String)
+V.Local.sData.Declare(String)
+V.Local.sTemplate.Declare(String)
+V.Local.sFilter.Declare(String)
+V.Local.iC.Declare(Long)
+V.Local.sDir.Declare(String)
+V.Local.bRet.Declare(Boolean)
+V.Local.sPart.Declare(String)
+v.Local.bExists.Declare(boolean)
+v.Local.sName.Declare(String)
+
+Gui.Form_Open_Order..Visible(False)
+
+F.Intrinsic.UI.InvokeWaitDialog("Gettting All Open Orders")
+
+F.Intrinsic.Control.CallSub(Get_Data)
+
+
+F.Data.DataView.Create("Demand","Demand")
+F.Data.DataView.Create("Supply","Supply")
+
+F.Intrinsic.String.Build("Delete From GCG_4810_Dmnd_Supp Where Terminal = '{0}'",V.Caller.Terminal,V.Local.sSql)
+F.ODBC.Connection!Con.Execute(V.Local.sSql)
+
+V.Local.sSql.Set("Select * From GCG_4810_Dmnd_Supp Where Terminal = '-1'")
+F.Data.DataTable.CreateFromSQL("Print","con",V.Local.sSql,True)
+F.Data.DataView.Create("OrdersPart","V_ORDERSPART")
+F.Data.DataView.ToDataTableDistinct("OrdersPart","V_ORDERSPART","UNIQUEPART","PART")
+
+
+F.Intrinsic.Control.For(V.Local.i,0,V.DataTable.UNIQUEPART.RowCount--,1)
+	V.Local.sPart.Set(V.DataTable.UNIQUEPART(V.Local.i).Part!FieldValTrim)
+	F.Intrinsic.String.Build("Part = '{0}'",V.Local.sPart.PSQLFriendly,V.Local.sFilter)
+			
+	F.Data.DataView.SetFilter("Demand","Demand",V.Local.sFilter)
+	F.Data.DataView.SetFilter("Supply","Supply",V.Local.sFilter)
+	
+	F.Intrinsic.Control.If(V.DataView.Demand!Demand.RowCount--,>,V.DataView.Supply!Supply.RowCount--)
+		F.Intrinsic.Control.For(V.Local.iC,0,V.DataView.Demand!Demand.RowCount--,1)
+			F.Intrinsic.Control.If(V.Local.iC,<=,V.DataView.Supply!Supply.RowCount--)
+				F.Data.DataTable.AddRow("Print","Part",V.DataTable.UNIQUEPART(V.Local.i).Part!FieldValTrim,"Product_Line",v.DataView.Demand!Demand(v.Local.iC).product_line!FieldValTrim,"Order_No",V.DataView.Demand!Demand(V.Local.iC).Order_No!FieldValtrim,"Name_Customer",V.DataView.Demand!Demand(V.Local.iC).Name_Customer!FieldValTrim,"Customer_PO",V.DataView.Demand!Demand(V.Local.iC).Customer_PO!FieldValTrim,"Qty_Ordered",V.DataView.Demand!Demand(V.Local.iC).Qty_Ordered!FieldValFloat,"Qty_OnHand",V.DataView.Demand!Demand(V.Local.iC).Qty_OnHand!FieldValFloat,"Date_Due",V.DataView.Demand!Demand(V.Local.iC).Date_Due!FieldVal,"Price",V.DataView.Demand!Demand(V.Local.iC).Price!FieldValFloat,"Cost",V.DataView.Supply!Supply(V.Local.iC).Cost!FieldValFloat,"Purchase_Order",V.DataView.Supply!Supply(V.Local.iC).Purchase_Order!FieldValTrim,"Date_Order",V.DataView.Supply!Supply(V.Local.iC).Date_Order!FieldVal,"Name_Vendor",V.DataView.Supply!Supply(V.Local.iC).Name_Vendor!FieldValTrim,"Qty_Order",V.DataView.Supply!Supply(V.Local.iC).Qty_Order!FieldValFloat,"Qty_Open",V.DataView.Supply!Supply(V.Local.iC).Qty_Open!FieldValFloat)
+			F.Intrinsic.Control.Else
+				F.Data.DataTable.AddRow("Print","Part",V.DataTable.UNIQUEPART(V.Local.i).Part!FieldValTrim,"Product_Line",v.DataView.Demand!Demand(v.Local.iC).product_line!FieldValTrim,"Order_No",V.DataView.Demand!Demand(V.Local.iC).Order_No!FieldValtrim,"Name_Customer",V.DataView.Demand!Demand(V.Local.iC).Name_Customer!FieldValTrim,"Customer_PO",V.DataView.Demand!Demand(V.Local.iC).Customer_PO!FieldValTrim,"Qty_Ordered",V.DataView.Demand!Demand(V.Local.iC).Qty_Ordered!FieldValFloat,"Qty_OnHand",V.DataView.Demand!Demand(V.Local.iC).Qty_OnHand!FieldValFloat,"Date_Due",V.DataView.Demand!Demand(V.Local.iC).Date_Due!FieldVal,"Price",V.DataView.Demand!Demand(V.Local.iC).Price!FieldValFloat,"Date_Order","1900-01-01")
+			F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.Next(V.Local.iC)
+		
+	F.Intrinsic.Control.Else
+		F.Intrinsic.Control.If(V.DataView.Supply!Supply.RowCount--,<>,-1)
+			F.Intrinsic.Control.For(V.Local.iC,0,V.DataView.Supply!Supply.RowCount--,1)
+				F.Intrinsic.Control.If(V.Local.iC,<=,V.DataView.Demand!Demand.RowCount--)
+					F.Data.DataTable.AddRow("Print","Part",V.DataTable.UNIQUEPART(V.Local.i).Part!FieldValTrim,"Product_Line",v.DataView.Demand!Demand(v.Local.iC).product_line!FieldValTrim,"Order_No",V.DataView.Demand!Demand(V.Local.iC).Order_No!FieldValtrim,"Name_Customer",V.DataView.Demand!Demand(V.Local.iC).Name_Customer!FieldValTrim,"Customer_PO",V.DataView.Demand!Demand(V.Local.iC).Customer_PO!FieldValTrim,"Qty_Ordered",V.DataView.Demand!Demand(V.Local.iC).Qty_Ordered!FieldValFloat,"Qty_OnHand",V.DataView.Demand!Demand(V.Local.iC).Qty_OnHand!FieldValFloat,"Date_Due",V.DataView.Demand!Demand(V.Local.iC).Date_Due!FieldVal,"Price",V.DataView.Demand!Demand(V.Local.iC).Price!FieldValFloat,"Cost",V.DataView.Supply!Supply(V.Local.iC).Cost!FieldValFloat,"Purchase_Order",V.DataView.Supply!Supply(V.Local.iC).Purchase_Order!FieldValTrim,"Date_Order",V.DataView.Supply!Supply(V.Local.iC).Date_Order!FieldVal,"Name_Vendor",V.DataView.Supply!Supply(V.Local.iC).Name_Vendor!FieldValTrim,"Qty_Order",V.DataView.Supply!Supply(V.Local.iC).Qty_Order!FieldValFloat,"Qty_Open",V.DataView.Supply!Supply(V.Local.iC).Qty_Open!FieldValFloat)
+				F.Intrinsic.Control.Else
+					F.Data.DataTable.AddRow("Print","Part",V.DataTable.UNIQUEPART(V.Local.i).Part!FieldValTrim,"Product_Line",v.DataView.Supply!Supply(v.Local.iC).product_line!FieldValTrim,"Date_Due","1900-01-01","Cost",V.DataView.Supply!Supply(V.Local.iC).Cost!FieldValFloat,"Purchase_Order",V.DataView.Supply!Supply(V.Local.iC).Purchase_Order!FieldValTrim,"Date_Order",V.DataView.Supply!Supply(V.Local.iC).Date_Order!FieldVal,"Name_Vendor",V.DataView.Supply!Supply(V.Local.iC).Name_Vendor!FieldValTrim,"Qty_Order",V.DataView.Supply!Supply(V.Local.iC).Qty_Order!FieldValFloat,"Qty_Open",V.DataView.Supply!Supply(V.Local.iC).Qty_Open!FieldValFloat)
+				F.Intrinsic.Control.EndIf
+			F.Intrinsic.Control.Next(V.Local.iC)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.Next(V.Local.i)
+
+'filter the data based on selected product lines
+
+F.Data.DataTable.FillFromDictionary("Print","DNY_PRINT","PRODUCT_LINE","TERMINAL")
+F.Data.DataView.Create("PRINT","V_PRINT",22,"TERMINAL <> ''","TERMINAL")
+F.Data.DatavIEW.ToDataTable("PRINT","V_PRINT","T_PRINT")
+
+
+F.Intrinsic.Control.If(V.Screen.Form_Open_Order!optCrystal.Value,=,True)
+	F.Intrinsic.UI.ChangeWaitStatus("Printing Crystal Report")
+	
+	'F.Data.DataTable.SetValue("Print",-1,"Terminal",V.Caller.Terminal)
+	
+
+	F.Data.DataTable.SaveToDB("T_Print","con","GCG_4810_Dmnd_Supp","",128,"Terminal@!@Terminal*!*Part@!@Part*!*Product_Line@!@Product_Line*!*Order_NO@!@Order_No*!*Name_Customer@!@Name_Customer*!*Qty_Ordered@!@Qty_Ordered*!*Qty_OnHand@!@Qty_OnHand*!*Date_Due@!@Date_Due*!*Price@!@Price*!*Cost@!@Cost*!*Purchase_Order@!@Purchase_Order*!*Date_Order@!@Date_Order*!*Name_Vendor@!@Name_Vendor*!*Qty_Order@!@Qty_Order*!*Qty_Open@!@Qty_Open")
+	
+	F.Global.BI.GetIDFromName("GCG_4810_Open_Orders.RPT",V.Local.iRpt)
+	
+	F.Global.BI.GetRunID(V.Local.iBIRunID)
+	
+	F.Global.BI.StartLogging(V.Local.iBIRunID,V.Local.iRpt,-1,"",V.Local.iLogID)
+	F.Global.BI.StopLogging(V.Local.iLogID)
+	
+	V.Local.sParams.Set("Terminal")
+	V.Local.sValues.Set(V.Caller.Terminal)
+	
+	F.Global.BI.RunReportPreProcessor(V.Local.iBIRunID,V.Local.iLogID,V.Local.sParams,V.Local.sValues,"",-1,True,"",-1,"",-1,"","",V.Local.iRet)
+	
+F.Intrinsic.Control.Else
+	F.Intrinsic.UI.ChangeWaitStatus("Generating Excel File")
+	
+	F.Intrinsic.Control.If(V.DataTable.Demand.RowCount--,=,-1,"AND",V.DataTable.Supply.RowCount--,=,-1)
+		F.Intrinsic.UI.Msgbox("No Excel File Generated. No Open Orders")
+		F.Intrinsic.Control.CallSub(Form_Open_Order_UnLoad)
+	F.Intrinsic.Control.EndIf
+	
+	F.Data.DataTable.Create("Excel")
+	F.Data.DataTable.AddColumn("Excel","Part","String")
+	f.Data.DataTable.AddColumn("Excel","Product_Line","String")
+	F.Data.DataTable.AddColumn("Excel","Order_No","String")
+	F.Data.DataTable.AddColumn("Excel","Name_Customer","String")
+	F.Data.DataTable.AddColumn("Excel","Customer_PO","String")
+	F.Data.DataTable.AddColumn("Excel","Qty_Ordered","String")
+	F.Data.DataTable.AddColumn("Excel","Qty_OnHand","String")
+	F.Data.DataTable.AddColumn("Excel","Date_Due","String")
+	F.Data.DataTable.AddColumn("Excel","Price","String")
+	F.Data.DataTable.AddColumn("Excel","Cost","String")
+	F.Data.DataTable.AddColumn("Excel","Purchase_Order","String")
+	F.Data.DataTable.AddColumn("Excel","Date_Order","String")
+	F.Data.DataTable.AddColumn("Excel","Name_Vendor","String")
+	F.Data.DataTable.AddColumn("Excel","Qty_Order","String")
+	F.Data.DataTable.AddColumn("Excel","Qty_Open","String")
+	
+	F.Data.DataTable.AddRow("Excel","Part","Our Part #","Product_Line","Product Line","Order_No","Sales Order #","Name_Customer","Customer Name","Customer_PO","Customer PO #","Qty_Ordered","Qty on Order","Qty_OnHand","Qty On Hand","Date_Due","Due Date","Price","Selling Price (ea.)","Cost","Purchase Cost (ea.)","Purchase_Order","PO #","Date_Order","PO Date","Name_Vendor","Vendor Name","Qty_Order","Qty Ordered","Qty_Open","Qty Open")
+	
+	F.Intrinsic.String.Format(V.Ambient.Date,"MMDDYYYY",V.Local.sDate)
+	
+	F.Intrinsic.String.Build("{0}\GCG_4810_DmndSupp_Example.xlsx",V.Caller.GasDir,V.Local.sTemplate)
+	
+	F.Intrinsic.Control.For(V.Local.i,0,V.DataTable.T_Print.RowCount--,1)
+			F.Data.DataTable.AddRow("Excel","Part",V.DataTable.T_Print(V.Local.i).Part!FieldValTrim,"Product_Line",v.DataTable.T_Print(v.Local.i).product_line!FieldValTrim,"Order_No",V.DataTable.T_Print(V.Local.i).Order_No!FieldValtrim,"Name_Customer",V.DataTable.T_Print(V.Local.i).Name_Customer!FieldValTrim,"Customer_PO",V.DataTable.T_Print(V.Local.i).Customer_PO!FieldValTrim,"Qty_Ordered",V.DataTable.T_Print(V.Local.i).Qty_Ordered!FieldValFloat,"Qty_OnHand",V.DataTable.T_Print(V.Local.i).Qty_OnHand!FieldValFloat,"Date_Due",V.DataTable.T_Print(V.Local.i).Date_Due!FieldVal,"Price",V.DataTable.T_Print(V.Local.i).Price!FieldValFloat,"Cost",V.DataTable.T_Print(V.Local.i).Cost!FieldValFloat,"Purchase_Order",V.DataTable.T_Print(V.Local.i).Purchase_Order!FieldValTrim,"Date_Order",V.DataTable.T_Print(V.Local.i).Date_Order!FieldVal,"Name_Vendor",V.DataTable.T_Print(V.Local.i).Name_Vendor!FieldValTrim,"Qty_Order",V.DataTable.T_Print(V.Local.i).Qty_Order!FieldValFloat,"Qty_Open",V.DataTable.T_Print(V.Local.i).Qty_Open!FieldValFloat)
+			F.Intrinsic.Control.If(V.DataTable.Excel(V.Local.i).Order_No!FieldValTrim,=,"")
+				F.Data.DataTable.SetValue("Excel",V.Local.i,"Date_Due","","Qty_Ordered","","Qty_OnHand","","Price","")
+			F.Intrinsic.Control.EndIf
+			F.Intrinsic.Control.If(V.DataTable.Excel(V.Local.i).Purchase_Order!FieldValTrim,=,"")
+				F.Data.DataTable.SetValue("Excel",V.Local.i,"Date_Order","","Qty_Order","","Qty_Open","","Cost","")
+			F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Next(V.Local.i)
+	
+	'Fill in QTY_onhand that was missed on the POs
+	f.Data.Dictionary.CreateFromSQL("dictOnHand","con","select RTRIM(part), QTY_ONHAND from v_inventory_mstr")
+	f.Data.Dictionary.SetDefaultReturn("dictOnHand","0.0000")
+	f.Data.DataTable.FillFromDictionary("Excel","dictOnHand","part","Qty_OnHand")
+	F.Data.Dictionary.Close("dictOnHand")
+	
+	F.Data.DataTable.SetValue("Excel",0,"Qty_OnHand","Qty On Hand")
+	
+	F.Data.DataView.Create("Excel","Temp")
+	
+	F.Data.DataView.ToString("Excel","Temp","*!*","$!$",V.Local.sData)
+	
+	F.Intrinsic.String.Build("{0}\Open Order Reports",V.Caller.GlobalDir,V.Local.sDir)
+
+
+	F.Intrinsic.Control.If(V.Local.bRet,=,False)
+		F.Intrinsic.File.CreateDir(V.Local.sDir)
+	F.Intrinsic.Control.EndIf
+	f.Intrinsic.String.Build("{0}_{1}_OpenOrders.xlsx",v.Caller.User,v.Local.sDate,v.Local.sName)
+	F.Intrinsic.String.Build("{0}\{1}",V.Local.sDir,v.Local.sName,V.Local.sFile)
+	
+	f.Intrinsic.File.Exists(v.Local.sFile,v.Local.bExists)
+	f.Intrinsic.Control.If(v.Local.bExists,=,"True")
+		f.Intrinsic.File.DeleteFile(v.Local.sFile)
+	f.Intrinsic.Control.EndIf
+	F.Automation.MSExcel.WriteSpreadsheet(V.Local.sFile,V.Local.sTemplate,V.Local.sData)
+	f.Intrinsic.Task.ShellExec("","OPEN",V.Local.sName,"",v.Local.sDir,1)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.UI.CloseWaitDialog
+
+F.Intrinsic.Control.CallSub(Form_Open_Order_UnLoad)
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Catch
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}","GCG_4810_Open_Order.g2u",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Form_Open_Order_UnLoad)
+F.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndTry
+Program.Sub.cmdPrint_Click.End
+
+Program.Sub.chkPL_Click.Start
+F.Intrinsic.Control.Try
+v.Local.sError.Declare(String)
+
+f.Intrinsic.Control.If(v.Screen.Form_Open_Order!chkPL.checkedasboolean,"=",True)
+	f.Data.DataTable.SetValue("PLINES",-1,"SELECTED",True)
+F.Intrinsic.Control.Else
+	F.Data.DataTable.SetValue("PLINES",-1,"SELECTED",False)
+f.Intrinsic.Control.EndIf
+
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Catch
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}","GCG_4810_Open_Order.g2u",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Form_Open_Order_UnLoad)
+F.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndTry
+Program.Sub.chkPL_Click.End
+
+Program.Sub.GsGC_PLines_RowCellClick.Start
+F.Intrinsic.Control.Try
+v.Local.sError.Declare(String)
+v.Local.bSel.Declare(Boolean)
+
+v.Local.bSel.Set(v.Args.Cellvalue)
+f.Intrinsic.Control.If(v.Local.bSel,"=",True)
+	v.Args.cellvalue.set(False)
+f.Intrinsic.Control.Else
+	v.Args.cellvalue.set(True)
+f.Intrinsic.Control.EndIf
+
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Catch
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: {0}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}","GCG_4810_Open_Order.g2u",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Form_Open_Order_UnLoad)
+F.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndTry
+Program.Sub.GsGC_PLines_RowCellClick.End
+
+Program.Sub.format_grid.Start
+F.Intrinsic.Control.SetErrorHandler("format_grid_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+
+F.Data.DataTable.CreateFromSQL("PLINES","CON","SELECT CAST(0 AS BIT) AS SELECTED, PRODUCT_LINE, PRODUCT_LINE_DESC AS DESCRIPTION FROM V_PRODUCT_LINE WHERE PRODUCT_LINE > ''",True)
+F.Data.DataView.Create("PLINES","V_PLINES")
+gui.Form_Open_Order.GsGC_PLines.DataSource("PLINES")
+GUI.Form_Open_Order.GsGC_PLines.AddGridviewFromDataview("gvPLINES","PLINES","V_PLINES")
+
+gui.Form_Open_Order.GsGC_PLines.SetColumnProperty("gvPLINES","SELECTED","READONLY",False)
+gui.Form_Open_Order.GsGC_PLines.SetCellAppearance("gvPLINES","SELECTED","allowedit",True)
+gui.Form_Open_Order.GsGC_PLines.SetColumnProperty("gvPLINES","PRODUCT_LINE","READONLY",True)
+gui.Form_Open_Order.GsGC_PLines.SetColumnProperty("gvPLINES","DESCRIPTION","READONLY",True)
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("format_grid_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.Debug.SetLA(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.format_grid.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$$}$12:00:00 AM$}$False
+Program.Sub.Comments.End
