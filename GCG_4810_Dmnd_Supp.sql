@@ -1,0 +1,16 @@
+CREATE TABLE "GCG_4810_Dmnd_Supp"(
+ "TERMINAL" CHAR(3),
+ "Part" CHAR(20),
+ "Order_No" CHAR(7),
+ "Name_Customer" CHAR(30),
+ "Customer_PO" CHAR(15),
+ "Qty_Ordered" DOUBLE,
+ "Qty_OnHand" DOUBLE,
+ "Date_Due" DATE,
+ "Price" DOUBLE,
+ "Cost" DOUBLE,
+ "Purchase_Order" CHAR(7),
+ "Date_Order" DATE,
+ "Name_Vendor" CHAR(30),
+ "Qty_Order" DOUBLE,
+ "Qty_Open" DOUBLE);
